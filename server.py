@@ -150,7 +150,6 @@ if __name__ == "__main__":
 
     class StableDiffusionResource:
         def on_post(self, req, resp):
-            start_time = time.time()
             # Validate req
             req = {
                 "prompt": "test engineer"
@@ -160,19 +159,25 @@ if __name__ == "__main__":
             js_epoch = int(time.time() * 1000)
             ident=f"t_{js_epoch}__gs_{opts.seed}__s{0}_{server_id}"
 
+            generation_start_time = time.time()
             img = generate_one(model, config, req)
+            generation_time = int((time.time() - generation_start_time)*1000)
             
             # Generate image buffer
             # JPEG q=100 is close to lossless.
             # TODO: consider webp / png
+            # TODO: consider a different thread for image encoding
             with io.BytesIO() as buf:
+                encoding_start_time = time.time()
                 img.save(buf, format="jpeg", quality=100)
+                encoding_time = int((time.time() - encoding_start_time)*1000)
                 resp.status = falcon.HTTP_200
                 resp.content_type = "image/jpeg"
                 resp.set_header("server", "wacky6/sds")
                 resp.set_header("content-disposition", f"attachment; filename={ident}.jpg")
                 resp.set_header("x-served-by", server_id)
-                resp.set_header("x-elapsed-time-ms", int((time.time() - start_time) * 1000))
+                resp.set_header("x-generation-time-ms", generation_time)
+                resp.set_header("x-image-encoding-time-ms", encoding_time)
                 resp.data = buf.getvalue()
 
 
