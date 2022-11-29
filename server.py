@@ -80,6 +80,57 @@ def generate_one(model, config, req):
         img = Image.fromarray(img_buf.astype(np.uint8))
         return img
 
+"""
+Return a sanitized payload that can be passed to `generate_one`.
+
+Raise exceptions when validation fails.
+"""
+def sanitize_payload(media):
+
+    """
+        "steps": int(50),
+        "downsample": int(8),
+        "scale": float(9.0),
+        "eta": float(0.0),
+        "seed": int(0xae),
+    """
+    payload = {}
+
+    # `prompt` is required.
+    if "prompt" not in media:
+        raise Exception("prompt must be provided")
+    payload["prompt"] = str(media.get("prompt"))
+
+    if "steps" in media:
+        n = int(media.get("steps"))
+        if n < 1:
+            raise Exception("steps must be positive")
+        payload["steps"] = n
+
+    if "downsample" in media:
+        n = int(media.get("downsample"))
+        if n < 1:
+            raise Exception("downsample must be positive")
+        payload["downsample"] = n
+
+    if "scale" in media:
+        f = float(media.get("scale"))
+        if f <= 0:
+            raise Exception("scale must be positive")
+        payload["scale"] = f
+
+    if "eta" in media:
+        f = float(media.get("eta"))
+        if f <= 0:
+            raise Exception("eta must be positive")
+        payload["eta"] = f
+
+    if "seed" in media:
+        n = int(media.get("seed"))
+        payload["seed"] = n
+
+    return payload
+
 if __name__ == "__main__":
     shard_id = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
     server_id = f"{socket.getfqdn()}-{shard_id}"
@@ -123,7 +174,7 @@ if __name__ == "__main__":
 
     config = OmegaConf.load(opts.config)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    
+
     # Load model
     pl_sd = torch.load(config.checkpoint, map_location="cpu")
     model = instantiate_from_config(config.model)
@@ -134,7 +185,7 @@ if __name__ == "__main__":
     print(f"sds: Model loaded")
     if len(m) > 0 or len(u) > 0:
         print(f"sds: Model has missing keys = {m}, unexpected keys = {u}")
-    
+
     # Instantiate sampler
     sampler = None
     if config.sampler == "plms":
@@ -150,19 +201,30 @@ if __name__ == "__main__":
 
     class StableDiffusionResource:
         def on_post(self, req, resp):
-            # Validate req
-            req = {
-                "prompt": "test engineer"
-            }
+            resp.set_header("server", "wacky6/sds")
+            resp.set_header("x-served-by", server_id)
+
+            # Don't bother with validator packages, use a handwritten one.
+            try:
+                payload = sanitize_payload(req.get_media(default_when_empty={}))
+            except Exception as e:
+                resp.status = falcon.HTTP_400
+                resp.content_type = "application/json"
+                resp.media = {
+                    "error": str(e)
+                }
+                return
+
+            print(f"payload = {payload}")
 
             # A string that identifies random generator seeds for repro.
             js_epoch = int(time.time() * 1000)
             ident=f"t_{js_epoch}__gs_{opts.seed}__s{0}_{server_id}"
 
             generation_start_time = time.time()
-            img = generate_one(model, config, req)
+            img = generate_one(model, config, payload)
             generation_time = int((time.time() - generation_start_time)*1000)
-            
+
             # Generate image buffer
             # JPEG q=100 is close to lossless. JPEG encoding is fast enough to block here.
             with io.BytesIO() as buf:
@@ -171,9 +233,7 @@ if __name__ == "__main__":
                 encoding_time = int((time.time() - encoding_start_time)*1000)
                 resp.status = falcon.HTTP_200
                 resp.content_type = "image/jpeg"
-                resp.set_header("server", "wacky6/sds")
                 resp.set_header("content-disposition", f"attachment; filename={ident}.jpg")
-                resp.set_header("x-served-by", server_id)
                 resp.set_header("x-generation-time-ms", generation_time)
                 resp.set_header("x-image-encoding-time-ms", encoding_time)
                 resp.data = buf.getvalue()
@@ -187,5 +247,5 @@ if __name__ == "__main__":
         server.serve_forever()
 
 
-        
+
 
