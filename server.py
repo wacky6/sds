@@ -139,14 +139,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--addr",
         type=str,
-        nargs=1,
         default="localhost:9001",
         help="address:port to bound http server"
     )
     parser.add_argument(
         "--config",
         type=str,
-        nargs=1,
         default="configs/stable-diffusion/v2-inference-v.yaml"
     )
     parser.add_argument(
