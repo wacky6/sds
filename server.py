@@ -164,9 +164,7 @@ if __name__ == "__main__":
             generation_time = int((time.time() - generation_start_time)*1000)
             
             # Generate image buffer
-            # JPEG q=100 is close to lossless.
-            # TODO: consider webp / png
-            # TODO: consider a different thread for image encoding
+            # JPEG q=100 is close to lossless. JPEG encoding is fast enough to block here.
             with io.BytesIO() as buf:
                 encoding_start_time = time.time()
                 img.save(buf, format="jpeg", quality=100)
