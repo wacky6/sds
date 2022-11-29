@@ -16,5 +16,8 @@ Using virtualenv is highly recommended.
 ### Scheduler + Worker
 
 
+## Inference
+`curl -JO -d "prompt=<prompt text>" http://<server>:<port>/sd`
+
 ## LICENSE
 MIT
