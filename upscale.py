@@ -139,7 +139,7 @@ if __name__ == "__main__":
         prng = np.random.RandomState(opts.seed)
 
         start_code = prng.randn(1, model.channels, h, w)
-        start_code = torch.from_numpy(start_code).to(device, dtype=torch.float32)
+        start_code = torch.from_numpy(start_code).to(device=device, dtype=torch.float32)
 
         def make_noise_augmentation(model, batch, noise_level=None):
             x_low = batch[model.low_scale_key]
@@ -148,7 +148,7 @@ if __name__ == "__main__":
             return x_aug, noise_level
 
         with torch.no_grad(), torch.autocast("cuda"):
-            image = torch.tensor(in_image).to(device, dtype=torch.float32) / 127.5 - 1.0
+            image = torch.tensor(in_image).to(device=device, dtype=torch.float32) / 127.5 - 1.0
             batch = {
                 "lr": rearrange(image, 'h w c -> 1 c h w'),
                 "txt": 1 * [prompt],
@@ -172,7 +172,7 @@ if __name__ == "__main__":
                 uc_cross = model.get_unconditional_conditioning(1, "")
                 uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
             elif isinstance(model, LatentUpscaleDiffusion):
-                noise_level = torch.Tensor(1 * [opts.noise]).to(device, dtype=torch.long)
+                noise_level = torch.Tensor(1 * [opts.noise]).to(sampler.model.device).long()
                 x_augment, noise_level = make_noise_augmentation(
                     model, batch, noise_level)
                 cond = {"c_concat": [x_augment],
@@ -198,12 +198,15 @@ if __name__ == "__main__":
                 callback=None
             )
 
+        with torch.no_grad():
+            # Autocast on decoder likely results in NaN.
             samples = model.decode_first_stage(samples)
-            out_image = torch.clamp((samples + 1.0) / 2.0, min=0.0, max=1.0)
-            out_image = rearrange(out_image, '1 c h w -> h w c')
-            out_image = (out_image.cpu().numpy() * 255.0).astype(np.uint8)
 
-            return out_image
+        out_image = torch.clamp((samples + 1.0) / 2.0, min=0.0, max=1.0)
+        out_image = rearrange(out_image, '1 c h w -> h w c')
+        out_image = (out_image.cpu().numpy() * 255.0).astype(np.uint8)
+
+        return out_image
 
     # Process files
     files = glob(opts.input)
@@ -212,8 +215,6 @@ if __name__ == "__main__":
         basename, extname = path.splitext(file_name)
         out_file_name = f"{basename}{opts.suffix}.png"
         out_path = os.path.join(opts.output_dir, out_file_name)
-
-        print(f"{file_name} -> {out_path}")
 
         image = None
         with Image.open(p) as im:
@@ -227,13 +228,15 @@ if __name__ == "__main__":
 
         # Process tiles
         # TODO: Maybe run parallel on multi GPUs, or don't bother with torch pipeline
-        out_tiles = list(map(lambda tile: process_tile(tile, prompt=opts.prompt), tiles))
+        out_tiles = []
+        for tile in tiles:
+            out_tile = process_tile(tile, prompt=opts.prompt)
+            out_tiles.append(out_tile) 
 
         if opts.tile > 0:
             out_image = clever_merge(out_tiles, image, opts.tile, opts.padding, config.upscale_factor)
         else:
             out_image = out_tiles[0]
 
-        print(out_image.shape)
         Image.fromarray(out_image).save(out_path, optimize=True)
 

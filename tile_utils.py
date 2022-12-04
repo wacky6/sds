@@ -67,7 +67,7 @@ def clever_merge(tiles: List[np.ndarray], image: np.ndarray, tile: int, padding:
     pad_h, pad_w = max(tile, h), max(tile, w)
     image = np.pad(image, [(0, pad_h), (0, pad_w), (0,0)])
 
-    out = np.zeros([image.shape[0]*scale, image.shape[1]*scale, c])
+    out = np.zeros([image.shape[0]*scale, image.shape[1]*scale, c], dtype=image.dtype)
 
     top, left = 0, 0
     nth_tile = 0
